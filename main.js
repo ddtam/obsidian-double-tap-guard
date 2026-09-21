@@ -126,6 +126,7 @@ class DoubleTapGuard extends Plugin {
         const st = {
             start: null, moved: true, anchor: null,
             muteTouchend: false, muteClick: false,
+            preventTouchend: false,
         };
         // Pointer events fire before their touch counterparts and the
         // synthesized click fires last, so the absorb decision is made
@@ -155,9 +156,23 @@ class DoubleTapGuard extends Plugin {
         el.addEventListener('pointerup', (evt) => {
             if (!evt.isPrimary) return;
             if (this.excluded(evt)) {
-                // Board input is never absorbed; remember the tap so
-                // an edit flip it causes can be reverted.
+                // Board input is never absorbed (stopping propagation
+                // here drops the widget's own interaction). Instead a
+                // cluster-follower tap is default-prevented: the flag
+                // travels with the event, the widget's document-level
+                // listeners still run, and a detector that respects
+                // defaultPrevented skips the tap. The revert below
+                // remains the backstop if it does not.
                 this.lastExcludedTap = Date.now();
+                const p = { x: evt.clientX, y: evt.clientY };
+                const now = Date.now();
+                const prev = st.anchor;
+                st.anchor = { t: now, x: p.x, y: p.y };
+                if (prev && now - prev.t < CLUSTER_MS
+                        && apart(p, prev) < CLUSTER_RADIUS_PX) {
+                    evt.preventDefault();
+                    st.preventTouchend = true;
+                }
                 return;
             }
             if (st.moved || !st.start) {
@@ -187,6 +202,10 @@ class DoubleTapGuard extends Plugin {
                 st.muteTouchend = false;
                 evt.stopPropagation();
             }
+            if (st.preventTouchend) {
+                st.preventTouchend = false;
+                if (evt.cancelable) evt.preventDefault();
+            }
         });
         el.addEventListener('click', (evt) => {
             if (st.muteClick) {
@@ -206,6 +225,14 @@ class DoubleTapGuard extends Plugin {
         if (Date.now() - this.lastExcludedTap > REVERT_MS) return;
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!view || view.getMode() !== 'source') return;
+        // Mask the container while the mode flips back, so the
+        // editor never paints visibly.
+        const container = view.containerEl;
+        const prevOpacity = container.style.opacity;
+        container.style.opacity = '0';
+        window.setTimeout(() => {
+            container.style.opacity = prevOpacity;
+        }, 120);
         const leaf = view.leaf;
         const state = leaf.getViewState();
         state.state.mode = 'preview';

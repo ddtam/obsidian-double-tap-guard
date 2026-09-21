@@ -1,7 +1,7 @@
 {
   "id": "double-tap-guard",
   "name": "Double Tap Guard",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "minAppVersion": "1.5.0",
   "description": "Stops taps inside configured elements from bubbling to Obsidian's double-tap-to-edit handler on mobile, so interacting with embedded widgets never flips the note into edit mode. Selectors are configurable in settings.",
   "author": "Derek",
