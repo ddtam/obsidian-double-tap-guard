@@ -34,15 +34,18 @@ const DEFAULT_SETTINGS = {
 };
 
 // A release counts as a tap only if the touch moved less than
-// TAP_SLOP_PX from where it started. Two taps form a double tap when
-// the second ends within DOUBLE_TAP_MS of the first and within
-// PAIR_RADIUS_PX of it. The radius is deliberately tighter than a
-// board square, so tapping a piece and then a nearby destination
-// square in quick succession is never misread as a double tap;
-// the edit gesture is two taps on the same spot.
-const DOUBLE_TAP_MS = 400;
+// TAP_SLOP_PX from where it started. Stationary taps form a cluster
+// while each lands within CLUSTER_MS and CLUSTER_RADIUS_PX of the
+// one before it; the first tap of a cluster passes through and every
+// follow-up is absorbed. Pair-wise absorption (0.3.x) leaked every
+// odd-numbered tap of a fast burst on one spot, and two leaked taps
+// still make a double tap upstream. Absorption is free for the
+// widget, whose handlers run before the guard, so the cluster can be
+// generous: the radius covers alternating between adjacent toolbar
+// buttons, not just one spot.
+const CLUSTER_MS = 600;
 const TAP_SLOP_PX = 12;
-const PAIR_RADIUS_PX = 20;
+const CLUSTER_RADIUS_PX = 60;
 
 function touchPoint(evt) {
     const t = (evt.changedTouches && evt.changedTouches[0]) || evt;
@@ -88,7 +91,7 @@ class DoubleTapGuard extends Plugin {
     }
 
     guard(el) {
-        const st = { start: null, moved: true, lastTap: null };
+        const st = { start: null, moved: true, anchor: null };
         el.addEventListener('touchstart', (evt) => {
             st.start = touchPoint(evt);
             st.moved = false;
@@ -103,19 +106,20 @@ class DoubleTapGuard extends Plugin {
             if (st.moved || !st.start) {
                 // A scroll or drag released over the widget. Let it
                 // bubble, or the gesture tracking above is left
-                // holding an unfinished touch.
-                st.lastTap = null;
+                // holding an unfinished touch. It also ends any tap
+                // cluster.
+                st.anchor = null;
                 return;
             }
             const p = touchPoint(evt);
             const now = Date.now();
-            const prev = st.lastTap;
-            if (prev && now - prev.t < DOUBLE_TAP_MS
-                    && apart(p, prev) < PAIR_RADIUS_PX) {
-                evt.stopPropagation(); // second tap: absorb the gesture
-                st.lastTap = null;
-            } else {
-                st.lastTap = { t: now, x: p.x, y: p.y };
+            const prev = st.anchor;
+            // The anchor slides to the latest tap either way, so a
+            // sustained burst stays one cluster however long it runs.
+            st.anchor = { t: now, x: p.x, y: p.y };
+            if (prev && now - prev.t < CLUSTER_MS
+                    && apart(p, prev) < CLUSTER_RADIUS_PX) {
+                evt.stopPropagation(); // follow-up tap in the cluster
             }
         });
         // dblclick only fires on a completed double click, so it is
