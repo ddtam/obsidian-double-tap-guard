@@ -26,7 +26,7 @@
  * reopened or the app restarts.
  */
 const {
-    Plugin, PluginSettingTab, Setting, Platform,
+    Plugin, PluginSettingTab, Setting, Platform, MarkdownView,
 } = require('obsidian');
 
 const DEFAULT_SETTINGS = {
@@ -56,6 +56,15 @@ const CLUSTER_MS = 600;
 const TAP_SLOP_PX = 12;
 const CLUSTER_RADIUS_PX = 60;
 
+// Excluded regions cannot be absorbed (their widget completes
+// interactions through document-level listeners), so a double tap
+// there is undone instead of prevented: an edit-mode flip landing
+// within REVERT_MS of a tap in an excluded region is reverted to
+// reading view. A single tap cannot flip the mode on its own, so the
+// coincidence this window can misread is a deliberate prose double
+// tap immediately after a board tap.
+const REVERT_MS = 300;
+
 function apart(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -66,6 +75,9 @@ class DoubleTapGuard extends Plugin {
             {}, DEFAULT_SETTINGS, await this.loadData());
         this.addSettingTab(new DoubleTapGuardSettingTab(this.app, this));
         if (!Platform.isMobile) return;
+        this.lastExcludedTap = 0;
+        this.registerEvent(this.app.workspace.on('layout-change',
+            () => this.maybeRevert()));
         this.observer = new MutationObserver(() => this.arm());
         this.observer.observe(document.body,
             { childList: true, subtree: true });
@@ -142,7 +154,12 @@ class DoubleTapGuard extends Plugin {
         }, { passive: true });
         el.addEventListener('pointerup', (evt) => {
             if (!evt.isPrimary) return;
-            if (this.excluded(evt)) return; // board input, not ours
+            if (this.excluded(evt)) {
+                // Board input is never absorbed; remember the tap so
+                // an edit flip it causes can be reverted.
+                this.lastExcludedTap = Date.now();
+                return;
+            }
             if (st.moved || !st.start) {
                 // A scroll or drag released over the widget. Let it
                 // bubble, or the gesture tracking above is left
@@ -183,6 +200,27 @@ class DoubleTapGuard extends Plugin {
             if (this.excluded(evt)) return;
             evt.stopPropagation();
         });
+    }
+
+    maybeRevert() {
+        if (Date.now() - this.lastExcludedTap > REVERT_MS) return;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || view.getMode() !== 'source') return;
+        const leaf = view.leaf;
+        const state = leaf.getViewState();
+        state.state.mode = 'preview';
+        leaf.setViewState(state);
+        // Drop the keyboard if it started to come up.
+        const focused = window.document.activeElement;
+        if (focused && focused.blur) focused.blur();
+        if (this.settings.debugFlash) {
+            const el = view.containerEl;
+            const prevOutline = el.style.outline;
+            el.style.outline = '3px solid orange';
+            window.setTimeout(() => {
+                el.style.outline = prevOutline;
+            }, 200);
+        }
     }
 
     // Attribution instrument for intermittent input problems: with
@@ -237,8 +275,10 @@ class DoubleTapGuardSettingTab extends PluginSettingTab {
                 + 'matching elements are never absorbed, for input '
                 + 'surfaces whose widget completes interactions '
                 + 'through document-level listeners; absorbing those '
-                + 'drops the interaction itself. Default covers '
-                + "chessground boards ('.cg-wrap').")
+                + 'drops the interaction itself. A double tap there '
+                + 'is undone instead: an edit-mode flip within 300 ms '
+                + 'of a tap in an excluded region is reverted. '
+                + "Default covers chessground boards ('.cg-wrap').")
             .addTextArea((t) => t
                 .setValue(this.plugin.settings.excludes)
                 .onChange(async (value) => {
