@@ -1,0 +1,3 @@
+/* Double tap guard ships no styles. This file exists because the
+ * release tooling and BRAT expect the three standard artifacts:
+ * main.js, manifest.json, styles.css. */

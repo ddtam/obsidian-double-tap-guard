@@ -1,0 +1,12 @@
+{
+  "name": "obsidian-double-tap-guard",
+  "version": "0.0.0",
+  "description": "Stops taps inside configured elements from reaching Obsidian's double-tap-to-edit handler on mobile.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node -e \"console.log('no build step: main.js is plain JS at the repo root')\"",
+    "brat:build": "npm run build && node scripts/brat-publish.mjs",
+    "brat:release": "node scripts/brat-release.mjs"
+  }
+}
