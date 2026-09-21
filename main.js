@@ -47,11 +47,6 @@ const CLUSTER_MS = 600;
 const TAP_SLOP_PX = 12;
 const CLUSTER_RADIUS_PX = 60;
 
-function touchPoint(evt) {
-    const t = (evt.changedTouches && evt.changedTouches[0]) || evt;
-    return { x: t.clientX, y: t.clientY };
-}
-
 function apart(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -91,18 +86,37 @@ class DoubleTapGuard extends Plugin {
     }
 
     guard(el) {
-        const st = { start: null, moved: true, anchor: null };
-        el.addEventListener('touchstart', (evt) => {
-            st.start = touchPoint(evt);
+        const st = {
+            start: null, moved: true, anchor: null,
+            muteTouchend: false, muteClick: false,
+        };
+        // Pointer events fire before their touch counterparts and the
+        // synthesized click fires last, so the absorb decision is made
+        // once at pointerup and applied to all three end events of the
+        // same tap. Which of the three Obsidian's gesture detector
+        // actually counts is not observable from here, and 0.3.x
+        // guarded touchend alone while the flip arrived anyway.
+        el.addEventListener('pointerdown', (evt) => {
+            if (!evt.isPrimary) return;
+            st.start = { x: evt.clientX, y: evt.clientY };
             st.moved = false;
+            st.muteTouchend = false;
+            st.muteClick = false;
         }, { passive: true });
-        el.addEventListener('touchmove', (evt) => {
-            if (st.moved || !st.start) return;
-            if (apart(touchPoint(evt), st.start) > TAP_SLOP_PX) {
+        el.addEventListener('pointermove', (evt) => {
+            if (!evt.isPrimary || st.moved || !st.start) return;
+            const p = { x: evt.clientX, y: evt.clientY };
+            if (apart(p, st.start) > TAP_SLOP_PX) {
                 st.moved = true;
             }
         }, { passive: true });
-        el.addEventListener('touchend', (evt) => {
+        el.addEventListener('pointercancel', () => {
+            // The browser took the gesture over, usually for a scroll.
+            st.moved = true;
+            st.anchor = null;
+        }, { passive: true });
+        el.addEventListener('pointerup', (evt) => {
+            if (!evt.isPrimary) return;
             if (st.moved || !st.start) {
                 // A scroll or drag released over the widget. Let it
                 // bubble, or the gesture tracking above is left
@@ -111,7 +125,7 @@ class DoubleTapGuard extends Plugin {
                 st.anchor = null;
                 return;
             }
-            const p = touchPoint(evt);
+            const p = { x: evt.clientX, y: evt.clientY };
             const now = Date.now();
             const prev = st.anchor;
             // The anchor slides to the latest tap either way, so a
@@ -120,6 +134,20 @@ class DoubleTapGuard extends Plugin {
             if (prev && now - prev.t < CLUSTER_MS
                     && apart(p, prev) < CLUSTER_RADIUS_PX) {
                 evt.stopPropagation(); // follow-up tap in the cluster
+                st.muteTouchend = true;
+                st.muteClick = true;
+            }
+        });
+        el.addEventListener('touchend', (evt) => {
+            if (st.muteTouchend) {
+                st.muteTouchend = false;
+                evt.stopPropagation();
+            }
+        });
+        el.addEventListener('click', (evt) => {
+            if (st.muteClick) {
+                st.muteClick = false;
+                evt.stopPropagation();
             }
         });
         // dblclick only fires on a completed double click, so it is
