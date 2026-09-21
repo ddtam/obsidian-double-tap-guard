@@ -31,6 +31,14 @@ const {
 
 const DEFAULT_SETTINGS = {
     selectors: '.ct-block\n.tree-codeblock',
+    // Regions inside a guarded wrapper whose taps are never absorbed.
+    // Widgets that bind document-level end listeners to complete an
+    // interaction (chessground binds them per gesture) lose that
+    // completion to a wrapper-level stopPropagation, so their input
+    // surface must be excluded rather than absorbed: dropped
+    // piece-move taps were attributed to exactly this by a guard-off
+    // test on 2026-09-21.
+    excludes: '.cg-wrap',
     debugFlash: false,
 };
 
@@ -68,6 +76,22 @@ class DoubleTapGuard extends Plugin {
         return this.settings.selectors
             .split('\n').map((s) => s.trim()).filter(Boolean)
             .join(', ');
+    }
+
+    excludeSelector() {
+        return this.settings.excludes
+            .split('\n').map((s) => s.trim()).filter(Boolean)
+            .join(', ');
+    }
+
+    excluded(evt) {
+        const sel = this.excludeSelector();
+        if (!sel || !(evt.target instanceof Element)) return false;
+        try {
+            return evt.target.closest(sel) !== null;
+        } catch (e) {
+            return false; // invalid selector in settings; exclude nothing
+        }
     }
 
     arm() {
@@ -118,6 +142,7 @@ class DoubleTapGuard extends Plugin {
         }, { passive: true });
         el.addEventListener('pointerup', (evt) => {
             if (!evt.isPrimary) return;
+            if (this.excluded(evt)) return; // board input, not ours
             if (st.moved || !st.start) {
                 // A scroll or drag released over the widget. Let it
                 // bubble, or the gesture tracking above is left
@@ -154,7 +179,10 @@ class DoubleTapGuard extends Plugin {
         });
         // dblclick only fires on a completed double click, so it is
         // always safe to contain inside the widget.
-        el.addEventListener('dblclick', (evt) => evt.stopPropagation());
+        el.addEventListener('dblclick', (evt) => {
+            if (this.excluded(evt)) return;
+            evt.stopPropagation();
+        });
     }
 
     // Attribution instrument for intermittent input problems: with
@@ -201,6 +229,20 @@ class DoubleTapGuardSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.selectors)
                 .onChange(async (value) => {
                     this.plugin.settings.selectors = value;
+                    await this.plugin.saveSettings();
+                }));
+        new Setting(containerEl)
+            .setName('Excluded selectors')
+            .setDesc('One CSS selector per line. Taps landing inside '
+                + 'matching elements are never absorbed, for input '
+                + 'surfaces whose widget completes interactions '
+                + 'through document-level listeners; absorbing those '
+                + 'drops the interaction itself. Default covers '
+                + "chessground boards ('.cg-wrap').")
+            .addTextArea((t) => t
+                .setValue(this.plugin.settings.excludes)
+                .onChange(async (value) => {
+                    this.plugin.settings.excludes = value;
                     await this.plugin.saveSettings();
                 }));
         new Setting(containerEl)
