@@ -36,10 +36,13 @@ const DEFAULT_SETTINGS = {
 // A release counts as a tap only if the touch moved less than
 // TAP_SLOP_PX from where it started. Two taps form a double tap when
 // the second ends within DOUBLE_TAP_MS of the first and within
-// PAIR_RADIUS_PX of it.
+// PAIR_RADIUS_PX of it. The radius is deliberately tighter than a
+// board square, so tapping a piece and then a nearby destination
+// square in quick succession is never misread as a double tap;
+// the edit gesture is two taps on the same spot.
 const DOUBLE_TAP_MS = 400;
 const TAP_SLOP_PX = 12;
-const PAIR_RADIUS_PX = 40;
+const PAIR_RADIUS_PX = 20;
 
 function touchPoint(evt) {
     const t = (evt.changedTouches && evt.changedTouches[0]) || evt;
