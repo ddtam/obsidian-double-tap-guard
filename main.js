@@ -31,6 +31,7 @@ const {
 
 const DEFAULT_SETTINGS = {
     selectors: '.ct-block\n.tree-codeblock',
+    debugFlash: false,
 };
 
 // A release counts as a tap only if the touch moved less than
@@ -136,6 +137,7 @@ class DoubleTapGuard extends Plugin {
                 evt.stopPropagation(); // follow-up tap in the cluster
                 st.muteTouchend = true;
                 st.muteClick = true;
+                this.flash(el);
             }
         });
         el.addEventListener('touchend', (evt) => {
@@ -153,6 +155,19 @@ class DoubleTapGuard extends Plugin {
         // dblclick only fires on a completed double click, so it is
         // always safe to contain inside the widget.
         el.addEventListener('dblclick', (evt) => evt.stopPropagation());
+    }
+
+    // Attribution instrument for intermittent input problems: with
+    // the debug setting on, every absorbed tap flashes the wrapper,
+    // so a dropped widget interaction shows at a glance whether the
+    // guard was involved.
+    flash(el) {
+        if (!this.settings.debugFlash) return;
+        const prevOutline = el.style.outline;
+        el.style.outline = '3px solid orange';
+        window.setTimeout(() => {
+            el.style.outline = prevOutline;
+        }, 200);
     }
 
     async saveSettings() {
@@ -186,6 +201,18 @@ class DoubleTapGuardSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.selectors)
                 .onChange(async (value) => {
                     this.plugin.settings.selectors = value;
+                    await this.plugin.saveSettings();
+                }));
+        new Setting(containerEl)
+            .setName('Flash on absorbed taps')
+            .setDesc('Debug aid: flash a guarded element orange each '
+                + 'time a tap inside it is absorbed, so a dropped '
+                + 'widget interaction shows whether the guard was '
+                + 'involved.')
+            .addToggle((tgl) => tgl
+                .setValue(this.plugin.settings.debugFlash)
+                .onChange(async (value) => {
+                    this.plugin.settings.debugFlash = value;
                     await this.plugin.saveSettings();
                 }));
     }
